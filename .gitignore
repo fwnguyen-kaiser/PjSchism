@@ -1,0 +1,14 @@
+# Virtual Env
+.venv/
+venv/
+env/
+
+# Var
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Data Volumes
+schism/data/volumes/

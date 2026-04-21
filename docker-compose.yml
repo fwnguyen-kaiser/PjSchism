@@ -1,0 +1,92 @@
+services:
+
+  # ── PostgreSQL + TimescaleDB ──────────────────────────────────────────────
+  db:
+    image: timescale/timescaledb:latest-pg16
+    container_name: schism_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: schism
+      POSTGRES_USER: schism
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./data/volumes/pgdata:/var/lib/postgresql/data      # bind-mount — safe với down -v
+      - ./db/init.sql:/docker-entrypoint-initdb.d/00_init.sql
+      - ./db/migrations/001_create_hypertables.sql:/docker-entrypoint-initdb.d/01_hypertables.sql
+      - ./db/migrations/002_create_refit_log.sql:/docker-entrypoint-initdb.d/02_refit_log.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U schism -d schism"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis Streams ─────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: schism_redis
+    restart: unless-stopped
+    volumes:
+      - ./data/volumes/redis:/data                          # bind-mount
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Ingestion service ─────────────────────────────────────────────────────
+  ingestion:
+    build:
+      context: .
+      dockerfile: Dockerfile.ingestion
+    container_name: schism_ingestion
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data/volumes/parquet:/app/data/volumes/parquet    # OI history — quan trọng nhất
+      - .:/app                                              # live reload khi dev
+    command: python -m data.ingestion.data_store
+
+  # ── Model service ─────────────────────────────────────────────────────────
+  model:
+    build:
+      context: .
+      dockerfile: Dockerfile.model
+    container_name: schism_model
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data/volumes/checkpoints:/app/data/volumes/checkpoints
+      - ./data/volumes/parquet:/app/data/volumes/parquet
+      - .:/app
+    command: python -m runtime.regime_engine
+
+  # ── API service ───────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: schism_api
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload

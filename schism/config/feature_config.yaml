@@ -1,0 +1,4 @@
+vif_threshold: 5
+rho: 0.85
+winsorize_pct: [1, 99]
+interaction_features: [9, 10]

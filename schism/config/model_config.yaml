@@ -1,0 +1,8 @@
+K: 4
+Dim: 10
+lambda_reg: 0.01
+tau_percentile: 95
+n_em_runs: 5
+max_iter: 200
+tol: 1.0e-5
+covariance_floor: 1.0e-4

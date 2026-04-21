@@ -1,0 +1,7 @@
+cooldown_bars: 30
+backstop_days: 90
+rv_ratio_thresh: 1.8
+rv_ratio_consecutive_bars: 12
+ll_rolling_window_days: 30
+ll_degradation_sigma: 2.0
+delta_align: 2.0
