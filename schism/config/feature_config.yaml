@@ -2,3 +2,21 @@ vif_threshold: 5
 rho: 0.85
 winsorize_pct: [1, 99]
 interaction_features: [9, 10]
+
+# EWMA alphas — pending calibration (Disclosure Q1)
+alpha_vol_ewma: 0.1      # ~19-bar half-life for volume EWMA (F8 denominator)
+alpha_fr_ewma: 0.3       # ~5-bar half-life for funding rate EWMA (Ut[1])
+
+# Spread TWAP window (seconds) — Disclosure §4.1
+spread_twap_window_s: 60
+spread_twap_fallback_s: 300
+
+# RV warmup requirements
+rv24h_warmup_bars: 6
+rv7d_warmup_bars: 42
+
+# Return anomaly threshold (|log(C/C_prev)| > this → flag)
+return_anomaly_threshold: 0.5
+
+# OI disaggregation — historical only
+oi_disagg_method: "vol_weighted"   # or "even_split" fallback

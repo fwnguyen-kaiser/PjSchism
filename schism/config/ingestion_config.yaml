@@ -1,0 +1,36 @@
+# ── Rate limits ───────────────────────────────────────────────────────────────
+binance_weight_limit: 2400          # per minute
+binance_weight_safety_margin: 400   # stop at 2000 used weight
+binance_http_timeout_s: 10.0
+binance_connect_timeout_s: 5.0
+binance_max_retries: 3
+
+bybit_req_limit: 600                # per 5 seconds
+bybit_req_window_s: 5
+bybit_ban_wait_s: 600               # 10 min on 403
+bybit_http_timeout_s: 10.0
+
+# ── Vision crawler ────────────────────────────────────────────────────────────
+vision_base_url: "https://data.binance.vision"
+vision_max_concurrent: 8
+vision_sleep_between_files_s: 0.5
+vision_max_retries: 2
+
+# ── Bar assembly ──────────────────────────────────────────────────────────────
+bar_interval_hours: 4
+min_history_days_vision: 30         # use vision for data older than this
+parquet_partition: "month"          # partition parquet by year/month
+
+# ── Data types to crawl from vision ──────────────────────────────────────────
+vision_data_types:
+  - klines_4h
+  - aggTrades
+  - bookTicker
+  - fundingRate
+  - metrics
+  - liquidationSnapshot
+
+# ── Bybit symbols (for cross-exchange FR) ─────────────────────────────────────
+bybit_fr_symbol_map:
+  BTCUSDT: "BTCUSDT"
+  ETHUSDT: "ETHUSDT"
