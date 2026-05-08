@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from schism.data.ingestion.bar_builder import Bar
+from schism.data.ingestion.bar_builder import Bar, IngestionSource
 from schism.data.ingestion.context import AppContext
 from schism.utils.logger import ingestion_logger
 
@@ -25,6 +25,8 @@ class LiveService:
         bar.funding_rate = self.ctx.funding_cache.get(symbol)
         bar.oi = self.ctx.oi_cache.get_oi(symbol)
         bar.lsr_top = self.ctx.oi_cache.get_lsr(symbol)
+        if bar.source is None:
+            bar.source = IngestionSource.BINANCE_WS
 
         ingestion_logger.info(
             "live_bar_complete",
@@ -46,7 +48,26 @@ class LiveService:
                 bar_ts=bar.bar_ts.isoformat(),
                 error=str(exc),
             )
+        else:
+            await self._write_bar_to_db(symbol, bar)
 
         await self.ctx.oi_cache.refresh(self.ctx.client, [symbol])
         await self.ctx.publisher.publish(bar)
 
+    async def _write_bar_to_db(self, symbol: str, bar: Bar) -> None:
+        if self.ctx.bar_repo is None:
+            return
+        try:
+            await self.ctx.bar_repo.upsert_bars([bar])
+            ingestion_logger.info(
+                "timescale_bar_written",
+                symbol=symbol,
+                bar_ts=bar.bar_ts.isoformat(),
+            )
+        except Exception as exc:
+            ingestion_logger.error(
+                "timescale_bar_write_failed",
+                symbol=symbol,
+                bar_ts=bar.bar_ts.isoformat(),
+                error=str(exc),
+            )

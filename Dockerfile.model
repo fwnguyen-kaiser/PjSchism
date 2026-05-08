@@ -12,4 +12,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "-m", "runtime.regime_engine"]
+CMD ["python", "-m", "schism.runtime.regime_engine"]
