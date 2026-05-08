@@ -103,6 +103,9 @@ def make_bar(
     oi: float | None = 50000.0,
     lsr_top: float | None = 1.2,
     funding_rate: float | None = 0.0001,
+    best_bid: float | None = 50501.0,
+    best_ask: float | None = 50502.0,
+    bybit_fr: float | None = None,
     source: IngestionSource | None = None,
 ) -> Bar:
     """Return a synthetic Bar for use in tests."""
@@ -125,6 +128,9 @@ def make_bar(
         oi             = oi,
         lsr_top        = lsr_top,
         funding_rate   = funding_rate,
+        best_bid       = best_bid,
+        best_ask       = best_ask,
+        bybit_fr       = bybit_fr,
         source         = source,
     )
 
@@ -178,12 +184,20 @@ def make_mock_client(
                                        "long_account": 0.55, "short_account": 0.45}]
     _funding  = funding_records  or [make_funding_response(_bar_ts(0))]
 
-    client.get_klines              = AsyncMock(return_value=_klines)
-    client.get_open_interest_hist  = AsyncMock(return_value=_oi)
-    client.get_top_lsr             = AsyncMock(return_value=_lsr)
-    client.get_funding_rate        = AsyncMock(return_value=_funding)
-    client.get_agg_trades          = AsyncMock(return_value=[])
-    client.stream_kline_close      = AsyncMock(return_value=None)
+    client.get_klines                 = AsyncMock(return_value=_klines)
+    client.get_open_interest_hist     = AsyncMock(return_value=_oi)
+    client.get_top_lsr                = AsyncMock(return_value=_lsr)
+    client.get_funding_rate           = AsyncMock(return_value=_funding)
+    client.get_agg_trades             = AsyncMock(return_value=[])
+    client.stream_kline_close         = AsyncMock(return_value=None)
+    client.get_book_ticker_snapshot   = AsyncMock(return_value={
+        "symbol":    "BTCUSDT",
+        "bid_price": 50501.0,
+        "ask_price": 50502.0,
+        "bid_qty":   1.0,
+        "ask_qty":   1.0,
+        "ts":        _bar_ts(0),
+    })
 
     return client
 

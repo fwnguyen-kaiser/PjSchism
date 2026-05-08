@@ -17,6 +17,7 @@ import pytest
 
 from schism.tests.conftest import _bar_ts, make_bar, make_kline_row, make_mock_client
 from schism.data.ingestion.bar_builder import Bar
+from schism.data.ingestion.cache.cross_fr_cache import CrossExchangeFRCache
 from schism.data.ingestion.cache.funding_cache import FundingCache
 from schism.data.ingestion.cache.oi_cache import OICache
 from schism.data.ingestion.context import AppContext
@@ -38,6 +39,8 @@ def make_context(
     oi_cache=None,
     publisher=None,
     bar_repo=None,
+    bybit_client=None,
+    cross_fr_cache=None,
     backfill_days: int = 1,
 ) -> AppContext:
     redis = redis or MagicMock()
@@ -54,6 +57,8 @@ def make_context(
         backfill_days=backfill_days,
         parquet_root=Path("/tmp/parquet"),
         env="test",
+        bybit_client=bybit_client,
+        cross_fr_cache=cross_fr_cache,
     )
 
 
@@ -201,7 +206,8 @@ class TestVisionCrawlerParsing:
 
 class TestLiveLoop:
     async def test_live_loop_attaches_cached_metrics_writes_and_publishes(self):
-        bar = make_bar(_bar_ts(0), oi=None, lsr_top=None, funding_rate=None)
+        bar = make_bar(_bar_ts(0), oi=None, lsr_top=None, funding_rate=None,
+                       best_bid=None, best_ask=None)
         client = make_mock_client()
 
         async def stream_once(symbol, on_bar_close, interval):
@@ -236,6 +242,9 @@ class TestLiveLoop:
         assert bar.funding_rate == pytest.approx(0.0004)
         assert bar.oi == pytest.approx(999.0)
         assert bar.lsr_top == pytest.approx(1.33)
+        assert bar.best_bid == pytest.approx(50501.0)
+        assert bar.best_ask == pytest.approx(50502.0)
+        client.get_book_ticker_snapshot.assert_awaited_once_with("BTCUSDT")
         store.write_bars.assert_awaited_once_with([bar])
         bar_repo.upsert_bars.assert_awaited_once_with([bar])
         oi_cache.refresh.assert_awaited_once_with(client, ["BTCUSDT"])
@@ -271,6 +280,93 @@ class TestLiveLoop:
         oi_cache.refresh.assert_awaited_once()
         bar_repo.upsert_bars.assert_not_awaited()
         publisher.publish.assert_awaited_once()
+
+    async def test_live_loop_continues_when_book_ticker_fails(self):
+        bar = make_bar(_bar_ts(0), best_bid=None, best_ask=None)
+        client = make_mock_client()
+        client.get_book_ticker_snapshot = AsyncMock(side_effect=RuntimeError("network error"))
+
+        async def stream_once(symbol, on_bar_close, interval):
+            await on_bar_close(bar)
+
+        client.stream_kline_close = AsyncMock(side_effect=stream_once)
+        store = MagicMock()
+        store.write_bars = AsyncMock()
+        oi_cache = OICache()
+        oi_cache.refresh = AsyncMock()
+        publisher = MagicMock()
+        publisher.publish = AsyncMock()
+        ctx = make_context(client=client, store=store, oi_cache=oi_cache, publisher=publisher)
+
+        await LiveService(ctx).run("BTCUSDT")
+
+        assert bar.best_bid is None
+        assert bar.best_ask is None
+        publisher.publish.assert_awaited_once()
+
+    async def test_live_loop_attaches_bybit_fr_from_cross_cache(self):
+        bar = make_bar(_bar_ts(0), oi=None, lsr_top=None, funding_rate=None, bybit_fr=None)
+        client = make_mock_client()
+
+        async def stream_once(symbol, on_bar_close, interval):
+            await on_bar_close(bar)
+
+        client.stream_kline_close = AsyncMock(side_effect=stream_once)
+        store = MagicMock()
+        store.write_bars = AsyncMock()
+        oi_cache = OICache()
+        oi_cache.refresh = AsyncMock()
+        publisher = MagicMock()
+        publisher.publish = AsyncMock()
+
+        bybit_client = MagicMock()
+        cross_fr_cache = CrossExchangeFRCache()
+        cross_fr_cache.update("BTCUSDT", 0.00015)
+        cross_fr_cache.refresh = AsyncMock()
+
+        ctx = make_context(
+            client=client,
+            store=store,
+            oi_cache=oi_cache,
+            publisher=publisher,
+            bybit_client=bybit_client,
+            cross_fr_cache=cross_fr_cache,
+        )
+
+        await LiveService(ctx).run("BTCUSDT")
+
+        assert bar.bybit_fr == pytest.approx(0.00015)
+        cross_fr_cache.refresh.assert_awaited_once_with(bybit_client, ["BTCUSDT"])
+
+    async def test_live_loop_skips_cross_fr_refresh_when_no_bybit_client(self):
+        bar = make_bar(_bar_ts(0))
+        client = make_mock_client()
+
+        async def stream_once(symbol, on_bar_close, interval):
+            await on_bar_close(bar)
+
+        client.stream_kline_close = AsyncMock(side_effect=stream_once)
+        store = MagicMock()
+        store.write_bars = AsyncMock()
+        oi_cache = OICache()
+        oi_cache.refresh = AsyncMock()
+        publisher = MagicMock()
+        publisher.publish = AsyncMock()
+        cross_fr_cache = CrossExchangeFRCache()
+        cross_fr_cache.refresh = AsyncMock()
+
+        ctx = make_context(
+            client=client,
+            store=store,
+            oi_cache=oi_cache,
+            publisher=publisher,
+            bybit_client=None,       # no bybit client
+            cross_fr_cache=cross_fr_cache,
+        )
+
+        await LiveService(ctx).run("BTCUSDT")
+
+        cross_fr_cache.refresh.assert_not_awaited()
 
 
 # ── sync_vision_to_db ─────────────────────────────────────────────────────────
@@ -360,3 +456,36 @@ class TestSyncVisionToDb:
 
         _, _, rows = bar_repo.patch_oi_lsr.await_args.args
         assert rows[0]["lsr_top"] is None
+
+
+# ── CrossExchangeFRCache ──────────────────────────────────────────────────────
+
+class TestCrossExchangeFRCache:
+    async def test_refresh_stores_latest_bybit_fr(self):
+        bybit_client = MagicMock()
+        bybit_client.get_funding_rate = AsyncMock(return_value=[
+            {"funding_time": _bar_ts(0), "funding_rate": 0.0002},
+        ])
+        cache = CrossExchangeFRCache()
+
+        await cache.refresh(bybit_client, ["BTCUSDT"])
+
+        assert cache.get("BTCUSDT") == pytest.approx(0.0002)
+        bybit_client.get_funding_rate.assert_awaited_once()
+
+    async def test_refresh_failure_is_non_fatal(self):
+        bybit_client = MagicMock()
+        bybit_client.get_funding_rate = AsyncMock(side_effect=RuntimeError("bybit down"))
+        cache = CrossExchangeFRCache()
+
+        await cache.refresh(bybit_client, ["BTCUSDT"])
+
+        assert cache.get("BTCUSDT") is None
+
+    async def test_update_replaces_snapshot_atomically(self):
+        cache = CrossExchangeFRCache()
+        cache.update("BTCUSDT", 0.0001)
+        cache.update("BTCUSDT", 0.0003)
+
+        assert cache.get("BTCUSDT") == pytest.approx(0.0003)
+        assert cache.get("ETHUSDT") is None

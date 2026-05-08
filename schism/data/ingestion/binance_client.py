@@ -27,7 +27,7 @@ from typing import AsyncIterator, Callable, Optional
 
 import httpx
 
-from schism.data.ingestion.bar_builder import Bar, IngestionSource
+from schism.data.ingestion.bar_builder import Bar, IngestionSource, build_bar_from_kline
 from schism.utils.date_helpers import datetime_to_ms, ms_to_datetime, normalize_ts
 from schism.utils.exceptions import BanError, DataMissingError, RateLimitWarning
 from schism.utils.logger import ingestion_logger
@@ -563,24 +563,19 @@ class BinanceClient:
                     msg = json.loads(raw_msg)
                     k = msg.get("k", {})
                     if bool(k["x"]):
-                        bar = Bar(
-                            bar_ts=ms_to_datetime(int(k["t"])),
-                            symbol=symbol,
-                            open=float(k["o"]),
-                            high=float(k["h"]),
-                            low=float(k["l"]),
-                            close=float(k["c"]),
-                            volume=float(k["v"]),
-                            cvd=0.0,
-                            num_trades=int(k["n"]),
-                            taker_buy_base=float(k["Q"]),
-                            source=IngestionSource.BINANCE_WS,
-                        )
-                        ingestion_logger.debug(
-                            "ws_bar_close",
-                            symbol=symbol,
-                            bar_ts=bar.bar_ts.isoformat(),
-                        )
+                        kline_dict = {
+                            "open_time":      ms_to_datetime(int(k["t"])),
+                            "open":           k["o"],
+                            "high":           k["h"],
+                            "low":            k["l"],
+                            "close":          k["c"],
+                            "volume":         k["v"],
+                            "num_trades":     k["n"],
+                            "taker_buy_base": k["V"],  # V=taker buy base, Q=taker buy quote
+                            "quote_volume":   k["q"],
+                        }
+                        bar = build_bar_from_kline(kline_dict, symbol)
+                        bar.source = IngestionSource.BINANCE_WS
                         result = on_bar_close(bar)
                         if inspect.isawaitable(result):
                             await result
