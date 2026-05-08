@@ -10,6 +10,8 @@ import redis.asyncio as aioredis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from schism.data.ingestion.binance_client import BinanceClient
+from schism.data.ingestion.bybit_client import BybitClient
+from schism.data.ingestion.cache.cross_fr_cache import CrossExchangeFRCache
 from schism.data.ingestion.cache.funding_cache import FundingCache
 from schism.data.ingestion.cache.oi_cache import OICache
 from schism.data.ingestion.data_store import DataStore
@@ -31,3 +33,5 @@ class AppContext:
     backfill_days: int
     parquet_root: Path
     env: str
+    bybit_client: Optional[BybitClient] = None
+    cross_fr_cache: Optional[CrossExchangeFRCache] = None

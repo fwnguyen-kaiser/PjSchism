@@ -86,6 +86,9 @@ class Bar:
     oi:             Optional[float] = None
     lsr_top:        Optional[float] = None
     funding_rate:   Optional[float] = None
+    best_bid:       Optional[float] = None
+    best_ask:       Optional[float] = None
+    bybit_fr:       Optional[float] = None
     source:         Optional[IngestionSource] = None
 
     def to_dict(self) -> dict:
@@ -107,6 +110,9 @@ class Bar:
             "oi":              self.oi,
             "lsr_top":         self.lsr_top,
             "funding_rate":    self.funding_rate,
+            "best_bid":        self.best_bid,
+            "best_ask":        self.best_ask,
+            "bybit_fr":        self.bybit_fr,
             "source":          self.source.value if self.source else None,
         }
 

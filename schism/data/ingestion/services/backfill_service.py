@@ -96,8 +96,27 @@ class BackfillService:
                 error=str(exc),
             )
 
+        bybit_funding_records: list[dict] = []
+        if self.ctx.bybit_client is not None:
+            try:
+                bybit_funding_records = await self.ctx.bybit_client.get_funding_rate(
+                    symbol=symbol,
+                    start_time=start - timedelta(hours=8),
+                    end_time=end,
+                    limit=1000,
+                )
+                bybit_funding_records.sort(key=lambda row: row["funding_time"])
+            except Exception as exc:
+                ingestion_logger.warning(
+                    "backfill_bybit_fr_fetch_failed",
+                    symbol=symbol,
+                    error=str(exc),
+                )
+
         funding_idx = 0
         current_funding_rate: Optional[float] = None
+        bybit_funding_idx = 0
+        current_bybit_fr: Optional[float] = None
 
         while chunk_start < end:
             try:
@@ -130,8 +149,16 @@ class BackfillService:
                     current_funding_rate = funding_records[funding_idx]["funding_rate"]
                     funding_idx += 1
 
+                while (
+                    bybit_funding_idx < len(bybit_funding_records)
+                    and bybit_funding_records[bybit_funding_idx]["funding_time"] <= kline["open_time"]
+                ):
+                    current_bybit_fr = bybit_funding_records[bybit_funding_idx]["funding_rate"]
+                    bybit_funding_idx += 1
+
                 bar = build_bar_from_kline(kline, symbol)
                 bar.funding_rate = current_funding_rate
+                bar.bybit_fr = current_bybit_fr
                 bar.source = IngestionSource.BINANCE_REST
                 all_bars.append(bar)
                 total_bars += 1

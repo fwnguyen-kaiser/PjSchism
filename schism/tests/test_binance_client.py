@@ -228,8 +228,10 @@ class TestStreamKlineClose:
                 "l": "49000",
                 "c": "50500",
                 "v": "100",
+                "q": "5050000",   # quote volume
                 "n": 500,
-                "Q": "55",
+                "V": "55",        # taker buy base asset volume
+                "Q": "2777500",   # taker buy quote asset volume
                 "x": is_closed,
             }
         })
