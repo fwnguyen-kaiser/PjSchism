@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Callable, Optional
 
 from schism.utils.date_helpers import datetime_to_bar_ts, ms_to_datetime
@@ -39,6 +40,13 @@ from schism.utils.logger import ingestion_logger
 
 
 # ── Bar dataclass ─────────────────────────────────────────────────────────────
+
+@dataclass
+class IngestionSource(str, Enum):
+    BINANCE_REST = "binance_rest"
+    BINANCE_WS = "binance_ws"
+    VISION_CRAWLER = "vision_crawler"
+
 
 @dataclass
 class Bar:
@@ -68,6 +76,9 @@ class Bar:
     low:            float
     close:          float
     volume:         float
+    exchange:       str = "binance"
+    market_type:    str = "perp"
+    timeframe_label: str = "4h"
     cvd:            float = 0.0
     num_trades:     int   = 0
     taker_buy_base: float = 0.0
@@ -75,11 +86,15 @@ class Bar:
     oi:             Optional[float] = None
     lsr_top:        Optional[float] = None
     funding_rate:   Optional[float] = None
+    source:         Optional[IngestionSource] = None
 
     def to_dict(self) -> dict:
         return {
             "bar_ts":          self.bar_ts,
             "symbol":          self.symbol,
+            "exchange":        self.exchange,
+            "market_type":     self.market_type,
+            "timeframe_label": self.timeframe_label,
             "open":            self.open,
             "high":            self.high,
             "low":             self.low,
@@ -92,6 +107,7 @@ class Bar:
             "oi":              self.oi,
             "lsr_top":         self.lsr_top,
             "funding_rate":    self.funding_rate,
+            "source":          self.source.value if self.source else None,
         }
 
 
@@ -152,11 +168,16 @@ def build_bar_from_kline(
     if agg_trades:
         cvd = compute_cvd(agg_trades)
     else:
-        ingestion_logger.warning(
-            "cvd_missing_agg_trades",
+        # Bar delta proxy: 2×taker_buy - volume = taker_buy - taker_sell
+        # Used for REST backfill and live reconnects where agg_trades are unavailable.
+        taker_buy = float(kline.get("taker_buy_base", 0.0))
+        vol = float(kline.get("volume", 0.0))
+        cvd = 2.0 * taker_buy - vol
+        ingestion_logger.debug(
+            "cvd_bar_delta_proxy",
             symbol=symbol,
             bar_ts=bar_ts.isoformat(),
-            reason="agg_trades not provided — CVD set to 0",
+            bar_delta=round(cvd, 4),
         )
 
     bar = Bar(

@@ -5,3 +5,9 @@ description = "IOHMM crypto regime detection"
 
 [tool.poetry.dependencies]
 python = "^3.11"
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+markers = [
+    "integration: requires live DATABASE_URL (schism_db container)",
+]

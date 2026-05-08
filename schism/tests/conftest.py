@@ -22,7 +22,7 @@ import pytest
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from schism.data.ingestion.bar_builder import Bar
+from schism.data.ingestion.bar_builder import Bar, IngestionSource
 from schism.data.ingestion.binance_client import BinanceClient
 from schism.data.ingestion.data_store import DataStore
 from schism.utils.date_helpers import datetime_to_ms, ms_to_datetime
@@ -94,12 +94,16 @@ def make_raw_kline_list(open_time: datetime, **kwargs) -> list:
 def make_bar(
     bar_ts: datetime | None = None,
     symbol: str = "BTCUSDT",
+    exchange: str = "binance",
+    market_type: str = "perp",
+    timeframe_label: str = "4h",
     close: float = 50500.0,
     volume: float = 100.0,
     cvd: float = 10.0,
     oi: float | None = 50000.0,
     lsr_top: float | None = 1.2,
     funding_rate: float | None = 0.0001,
+    source: IngestionSource | None = None,
 ) -> Bar:
     """Return a synthetic Bar for use in tests."""
     ts = bar_ts or _bar_ts(0)
@@ -111,6 +115,9 @@ def make_bar(
         low            = close - 1000,
         close          = close,
         volume         = volume,
+        exchange       = exchange,
+        market_type    = market_type,
+        timeframe_label = timeframe_label,
         cvd            = cvd,
         num_trades     = 1000,
         taker_buy_base = volume * 0.55,
@@ -118,6 +125,7 @@ def make_bar(
         oi             = oi,
         lsr_top        = lsr_top,
         funding_rate   = funding_rate,
+        source         = source,
     )
 
 

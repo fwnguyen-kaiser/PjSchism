@@ -1,0 +1,68 @@
+name: Ingestion Integrity & Consistency
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ingestion-integrity:
+    runs-on: ubuntu-latest
+
+    services:
+      timescaledb:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_DB: schism
+          POSTGRES_USER: schism
+          POSTGRES_PASSWORD: changeme
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U schism -d schism"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install psql client
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Run migrations
+        env:
+          PGPASSWORD: changeme
+        run: |
+          psql -h localhost -U schism -d schism -f schism/db/init.sql
+          for f in $(ls schism/db/migrations/*.sql | sort); do
+            echo "Applying $f"
+            psql -h localhost -U schism -d schism -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+      - name: Bar builder — CVD and field contracts
+        run: |
+          pytest schism/tests/test_bar_builder.py -v --tb=short
+
+      - name: Data store — parquet round-trip and merge
+        run: |
+          pytest schism/tests/test_data_store.py -v --tb=short
+
+      - name: Ingestion service — orchestration and pipeline paths
+        run: |
+          pytest schism/tests/test_ingestion_service.py -v --tb=short
+
+      - name: Ingestion integrity — Bar↔SQL contract and live DB schema
+        env:
+          DATABASE_URL: postgresql+asyncpg://schism:changeme@localhost:5432/schism?ssl=disable
+        run: |
+          pytest schism/tests/test_ingestion_integrity.py -v --tb=short

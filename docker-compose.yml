@@ -1,6 +1,4 @@
 services:
-
-  # ── PostgreSQL + TimescaleDB ──────────────────────────────────────────────
   db:
     image: timescale/timescaledb:latest-pg16
     container_name: schism_db
@@ -10,10 +8,10 @@ services:
       POSTGRES_USER: schism
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - ./data/volumes/pgdata:/var/lib/postgresql/data      # bind-mount — safe với down -v
-      - ./db/init.sql:/docker-entrypoint-initdb.d/00_init.sql
-      - ./db/migrations/001_create_hypertables.sql:/docker-entrypoint-initdb.d/01_hypertables.sql
-      - ./db/migrations/002_create_refit_log.sql:/docker-entrypoint-initdb.d/02_refit_log.sql
+      - ./schism/data/volumes/pgdata:/var/lib/postgresql/data
+      - ./schism/db/init.sql:/docker-entrypoint-initdb.d/00_init.sql
+      - ./schism/db/run_migrations.sh:/docker-entrypoint-initdb.d/01_run_migrations.sh
+      - ./schism/db/migrations:/docker-entrypoint-initdb.d/migrations
     ports:
       - "5432:5432"
     healthcheck:
@@ -22,13 +20,12 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Redis Streams ─────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: schism_redis
     restart: unless-stopped
     volumes:
-      - ./data/volumes/redis:/data                          # bind-mount
+      - ./schism/data/volumes/redis:/data
     ports:
       - "6379:6379"
     healthcheck:
@@ -37,7 +34,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Ingestion service ─────────────────────────────────────────────────────
   ingestion:
     build:
       context: .
@@ -45,15 +41,20 @@ services:
     container_name: schism_ingestion
     restart: unless-stopped
     env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://schism:${DB_PASSWORD}@db:5432/schism
+      REDIS_URL: redis://redis:6379
+      PARQUET_ROOT: /app/schism/data/volumes/parquet
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
-      - ./data/volumes/parquet:/app/data/volumes/parquet    # OI history — quan trọng nhất
-      - .:/app                                              # live reload khi dev
-    command: python -m data.ingestion.data_store
+      - ./schism/data/volumes/parquet:/app/schism/data/volumes/parquet
+      - .:/app
+    command: python -m schism.data.ingestion.ingestion_service
 
-  # ── Model service ─────────────────────────────────────────────────────────
   model:
     build:
       context: .
@@ -61,18 +62,21 @@ services:
     container_name: schism_model
     restart: unless-stopped
     env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://schism:${DB_PASSWORD}@db:5432/schism
+      REDIS_URL: redis://redis:6379
+      PARQUET_ROOT: /app/schism/data/volumes/parquet
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - ./data/volumes/checkpoints:/app/data/volumes/checkpoints
-      - ./data/volumes/parquet:/app/data/volumes/parquet
+      - ./schism/data/volumes/checkpoints:/app/schism/data/volumes/checkpoints
+      - ./schism/data/volumes/parquet:/app/schism/data/volumes/parquet
       - .:/app
-    command: python -m runtime.regime_engine
+    command: python -m schism.runtime.regime_engine
 
-  # ── API service ───────────────────────────────────────────────────────────
   api:
     build:
       context: .
@@ -80,6 +84,9 @@ services:
     container_name: schism_api
     restart: unless-stopped
     env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://schism:${DB_PASSWORD}@db:5432/schism
+      REDIS_URL: redis://redis:6379
     depends_on:
       db:
         condition: service_healthy
@@ -89,4 +96,4 @@ services:
       - .:/app
     ports:
       - "8000:8000"
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn schism.main:app --host 0.0.0.0 --port 8000 --reload

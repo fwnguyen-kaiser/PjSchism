@@ -13,4 +13,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "-m", "data.ingestion.data_store"]
+CMD ["python", "-m", "schism.data.ingestion.ingestion_service"]

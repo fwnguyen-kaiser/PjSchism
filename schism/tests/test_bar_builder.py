@@ -92,19 +92,17 @@ class TestBuildBarFromKline:
         bar = build_bar_from_kline(kline, "BTCUSDT", agg_trades=trades)
         assert bar.cvd == pytest.approx(2.0)
 
-    def test_cvd_zero_when_no_trades(self):
+    def test_bar_delta_proxy_when_no_trades(self):
         ts = _bar_ts(0)
-        kline = make_kline_row(ts)
+        kline = make_kline_row(ts)  # volume=100, taker_buy_base=55 → delta=2*55-100=10
         bar = build_bar_from_kline(kline, "BTCUSDT", agg_trades=None)
-        assert bar.cvd == 0.0
+        assert bar.cvd == pytest.approx(10.0)
 
-    def test_cvd_zero_logs_warning(self, caplog):
-        import logging
+    def test_bar_delta_proxy_no_crash(self, caplog):
         ts = _bar_ts(0)
-        kline = make_kline_row(ts)
-        # Warning is via structlog (stdout), not stdlib logging — just verify no crash
+        kline = make_kline_row(ts, volume=200.0, taker_buy_base=140.0)  # delta=2*140-200=80
         bar = build_bar_from_kline(kline, "BTCUSDT", agg_trades=None)
-        assert bar.cvd == 0.0
+        assert bar.cvd == pytest.approx(80.0)
 
     def test_oi_lsr_funding_none_by_default(self):
         ts = _bar_ts(0)
@@ -134,9 +132,10 @@ class TestBuildBarFromKline:
         kline = make_kline_row(ts)
         bar = build_bar_from_kline(kline, "BTCUSDT", agg_trades=[])
         d = bar.to_dict()
-        for key in ["bar_ts", "symbol", "open", "high", "low", "close",
+        for key in ["bar_ts", "symbol", "exchange", "market_type", "timeframe_label",
+                    "open", "high", "low", "close",
                     "volume", "cvd", "num_trades", "taker_buy_base",
-                    "quote_volume", "oi", "lsr_top", "funding_rate"]:
+                    "quote_volume", "oi", "lsr_top", "funding_rate", "source"]:
             assert key in d
 
 
@@ -233,8 +232,8 @@ class TestLiveBarBuilder:
         builder.reset()
 
         builder.on_kline_close(self._make_kline_close(ts))
-        # After reset, no pending trades — CVD should be 0
-        assert received[0].cvd == pytest.approx(0.0)
+        # Accumulated trades discarded — bar delta proxy used: 2*55 - 100 = 10
+        assert received[0].cvd == pytest.approx(10.0)
 
     def test_bar_boundary_discards_stale_trades(self):
         received: list[Bar] = []

@@ -28,6 +28,8 @@ from schism.data.ingestion.publishers.redis_publisher import RedisPublisher
 from schism.data.ingestion.scheduler.jobs import register_jobs
 from schism.data.ingestion.services.backfill_service import BackfillService
 from schism.data.ingestion.services.live_service import LiveService
+from schism.persistence.db import create_engine, create_session_factory, ping_database
+from schism.persistence.repositories.bar_repo import BarRepository
 from schism.utils.logger import ingestion_logger
 
 
@@ -42,10 +44,11 @@ SYMBOLS: list[str] = [
 ]
 BACKFILL_DAYS: int = int(_env("BACKFILL_DAYS", "180"))
 REDIS_URL: str = _env("REDIS_URL", "redis://localhost:6379")
-PARQUET_ROOT: Path = Path(_env("PARQUET_ROOT", "/app/data/volumes/parquet"))
+PARQUET_ROOT: Path = Path(_env("PARQUET_ROOT", "/app/schism/data/volumes/parquet"))
 API_KEY: str = _env("BINANCE_API_KEY")
 API_SECRET: str = _env("BINANCE_API_SECRET")
 ENV: str = _env("ENV", "dev")
+DATABASE_URL: str = _env("DATABASE_URL")
 
 
 async def bootstrap() -> AppContext:
@@ -64,6 +67,20 @@ async def bootstrap() -> AppContext:
     client = BinanceClient(api_key=API_KEY, api_secret=API_SECRET)
     await client.__aenter__()
 
+    db_engine = create_engine(DATABASE_URL)
+    bar_repo = None
+    if db_engine is not None:
+        try:
+            await ping_database(db_engine)
+            session_factory = create_session_factory(db_engine)
+            if session_factory is not None:
+                bar_repo = BarRepository(session_factory)
+            ingestion_logger.info("database_connected")
+        except Exception as exc:
+            ingestion_logger.error("database_connect_failed", error=str(exc))
+            if ENV == "prod":
+                sys.exit(1)
+
     publisher = RedisPublisher(redis)
     return AppContext(
         client=client,
@@ -72,6 +89,8 @@ async def bootstrap() -> AppContext:
         funding_cache=FundingCache(),
         oi_cache=OICache(),
         publisher=publisher,
+        bar_repo=bar_repo,
+        db_engine=db_engine,
         symbols=SYMBOLS,
         backfill_days=BACKFILL_DAYS,
         parquet_root=PARQUET_ROOT,
@@ -152,6 +171,8 @@ async def main() -> None:
             scheduler.shutdown(wait=False)
         await ctx.client.__aexit__(None, None, None)
         await ctx.redis.aclose()
+        if ctx.db_engine is not None:
+            await ctx.db_engine.dispose()
         ingestion_logger.info("ingestion_service_stopped")
 
 

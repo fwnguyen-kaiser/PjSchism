@@ -27,7 +27,7 @@ from typing import AsyncIterator, Callable, Optional
 
 import httpx
 
-from schism.data.ingestion.bar_builder import Bar
+from schism.data.ingestion.bar_builder import Bar, IngestionSource
 from schism.utils.date_helpers import datetime_to_ms, ms_to_datetime, normalize_ts
 from schism.utils.exceptions import BanError, DataMissingError, RateLimitWarning
 from schism.utils.logger import ingestion_logger
@@ -574,6 +574,7 @@ class BinanceClient:
                             cvd=0.0,
                             num_trades=int(k["n"]),
                             taker_buy_base=float(k["Q"]),
+                            source=IngestionSource.BINANCE_WS,
                         )
                         ingestion_logger.debug(
                             "ws_bar_close",

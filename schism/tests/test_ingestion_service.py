@@ -11,6 +11,8 @@ from datetime import timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pandas as pd
+
 import pytest
 
 from schism.tests.conftest import _bar_ts, make_bar, make_kline_row, make_mock_client
@@ -35,6 +37,7 @@ def make_context(
     funding_cache=None,
     oi_cache=None,
     publisher=None,
+    bar_repo=None,
     backfill_days: int = 1,
 ) -> AppContext:
     redis = redis or MagicMock()
@@ -45,6 +48,8 @@ def make_context(
         funding_cache=funding_cache or FundingCache(),
         oi_cache=oi_cache or OICache(),
         publisher=publisher or RedisPublisher(redis),
+        bar_repo=bar_repo,
+        db_engine=None,
         symbols=["BTCUSDT"],
         backfill_days=backfill_days,
         parquet_root=Path("/tmp/parquet"),
@@ -130,7 +135,7 @@ class TestBackfill:
         bars = store.write_bars.await_args.args[0]
         assert [bar.bar_ts for bar in bars] == [_bar_ts(0), _bar_ts(4)]
         assert all(isinstance(bar, Bar) for bar in bars)
-        assert all(bar.cvd == 0.0 for bar in bars)
+        assert all(bar.cvd == pytest.approx(10.0) for bar in bars)  # bar delta: 2*55-100=10
         assert all(bar.funding_rate == pytest.approx(0.0001) for bar in bars)
 
     async def test_backfill_klines_paginates_until_short_page(self):
@@ -214,6 +219,8 @@ class TestLiveLoop:
         oi_cache.refresh = AsyncMock()
         publisher = MagicMock()
         publisher.publish = AsyncMock()
+        bar_repo = MagicMock()
+        bar_repo.upsert_bars = AsyncMock()
         ctx = make_context(
             client=client,
             store=store,
@@ -221,6 +228,7 @@ class TestLiveLoop:
             funding_cache=funding_cache,
             oi_cache=oi_cache,
             publisher=publisher,
+            bar_repo=bar_repo,
         )
 
         await LiveService(ctx).run("BTCUSDT")
@@ -229,6 +237,7 @@ class TestLiveLoop:
         assert bar.oi == pytest.approx(999.0)
         assert bar.lsr_top == pytest.approx(1.33)
         store.write_bars.assert_awaited_once_with([bar])
+        bar_repo.upsert_bars.assert_awaited_once_with([bar])
         oi_cache.refresh.assert_awaited_once_with(client, ["BTCUSDT"])
         publisher.publish.assert_awaited_once_with(bar)
 
@@ -246,15 +255,108 @@ class TestLiveLoop:
         oi_cache.refresh = AsyncMock()
         publisher = MagicMock()
         publisher.publish = AsyncMock()
+        bar_repo = MagicMock()
+        bar_repo.upsert_bars = AsyncMock()
         ctx = make_context(
             client=client,
             store=store,
             oi_cache=oi_cache,
             funding_cache=FundingCache(),
             publisher=publisher,
+            bar_repo=bar_repo,
         )
 
         await LiveService(ctx).run("BTCUSDT")
 
         oi_cache.refresh.assert_awaited_once()
+        bar_repo.upsert_bars.assert_not_awaited()
         publisher.publish.assert_awaited_once()
+
+
+# ── sync_vision_to_db ─────────────────────────────────────────────────────────
+
+class TestSyncVisionToDb:
+    def _merged_df(self, rows: list[dict]) -> pd.DataFrame:
+        return pd.DataFrame(rows)
+
+    async def test_patches_oi_lsr_from_merged_parquet(self):
+        ts0, ts1 = _bar_ts(0), _bar_ts(4)
+        merged = self._merged_df([
+            {"bar_ts": pd.Timestamp(ts0), "sum_open_interest": 500.0, "top_ls_ratio": 1.2},
+            {"bar_ts": pd.Timestamp(ts1), "sum_open_interest": 510.0, "top_ls_ratio": 1.3},
+        ])
+        store = MagicMock()
+        store.merge_ohlcv_metrics = AsyncMock(return_value=merged)
+        bar_repo = MagicMock()
+        bar_repo.resolve_ids = AsyncMock(return_value=(1, 3))
+        bar_repo.patch_oi_lsr = AsyncMock()
+        ctx = make_context(store=store, bar_repo=bar_repo)
+
+        await BackfillService(ctx).sync_vision_to_db("BTCUSDT")
+
+        bar_repo.patch_oi_lsr.assert_awaited_once()
+        inst_id, tf_id, rows = bar_repo.patch_oi_lsr.await_args.args
+        assert inst_id == 1
+        assert tf_id == 3
+        assert len(rows) == 2
+        assert rows[0]["oi"] == pytest.approx(500.0)
+        assert rows[0]["lsr_top"] == pytest.approx(1.2)
+
+    async def test_skips_rows_with_null_oi(self):
+        ts0, ts1 = _bar_ts(0), _bar_ts(4)
+        merged = self._merged_df([
+            {"bar_ts": pd.Timestamp(ts0), "sum_open_interest": float("nan"), "top_ls_ratio": 1.2},
+            {"bar_ts": pd.Timestamp(ts1), "sum_open_interest": 500.0, "top_ls_ratio": 1.3},
+        ])
+        store = MagicMock()
+        store.merge_ohlcv_metrics = AsyncMock(return_value=merged)
+        bar_repo = MagicMock()
+        bar_repo.resolve_ids = AsyncMock(return_value=(1, 3))
+        bar_repo.patch_oi_lsr = AsyncMock()
+        ctx = make_context(store=store, bar_repo=bar_repo)
+
+        await BackfillService(ctx).sync_vision_to_db("BTCUSDT")
+
+        _, _, rows = bar_repo.patch_oi_lsr.await_args.args
+        assert len(rows) == 1
+        assert rows[0]["oi"] == pytest.approx(500.0)
+
+    async def test_skips_when_no_bar_repo(self):
+        store = MagicMock()
+        store.merge_ohlcv_metrics = AsyncMock()
+        ctx = make_context(store=store, bar_repo=None)
+
+        await BackfillService(ctx).sync_vision_to_db("BTCUSDT")
+
+        store.merge_ohlcv_metrics.assert_not_awaited()
+
+    async def test_skips_when_no_ohlcv_data(self):
+        from schism.utils.exceptions import DataMissingError
+        store = MagicMock()
+        store.merge_ohlcv_metrics = AsyncMock(
+            side_effect=DataMissingError("no data", source="parquet", path="")
+        )
+        bar_repo = MagicMock()
+        bar_repo.patch_oi_lsr = AsyncMock()
+        ctx = make_context(store=store, bar_repo=bar_repo)
+
+        await BackfillService(ctx).sync_vision_to_db("BTCUSDT")
+
+        bar_repo.patch_oi_lsr.assert_not_awaited()
+
+    async def test_lsr_top_none_when_top_ls_ratio_nan(self):
+        ts0 = _bar_ts(0)
+        merged = self._merged_df([
+            {"bar_ts": pd.Timestamp(ts0), "sum_open_interest": 500.0, "top_ls_ratio": float("nan")},
+        ])
+        store = MagicMock()
+        store.merge_ohlcv_metrics = AsyncMock(return_value=merged)
+        bar_repo = MagicMock()
+        bar_repo.resolve_ids = AsyncMock(return_value=(1, 3))
+        bar_repo.patch_oi_lsr = AsyncMock()
+        ctx = make_context(store=store, bar_repo=bar_repo)
+
+        await BackfillService(ctx).sync_vision_to_db("BTCUSDT")
+
+        _, _, rows = bar_repo.patch_oi_lsr.await_args.args
+        assert rows[0]["lsr_top"] is None
