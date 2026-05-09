@@ -26,6 +26,8 @@ class RedisPublisher:
         fields = {
             "bar_ts": bar.bar_ts.isoformat(),
             "symbol": bar.symbol,
+            "market_type": bar.market_type,
+            "exchange": bar.exchange,
             "open": str(bar.open),
             "high": str(bar.high),
             "low": str(bar.low),
@@ -35,6 +37,9 @@ class RedisPublisher:
             "oi": str(bar.oi) if bar.oi is not None else "",
             "lsr_top": str(bar.lsr_top) if bar.lsr_top is not None else "",
             "funding_rate": str(bar.funding_rate) if bar.funding_rate is not None else "",
+            "best_bid": str(bar.best_bid) if bar.best_bid is not None else "",
+            "best_ask": str(bar.best_ask) if bar.best_ask is not None else "",
+            "bybit_fr": str(bar.bybit_fr) if bar.bybit_fr is not None else "",
         }
         try:
             await self.redis.xadd(

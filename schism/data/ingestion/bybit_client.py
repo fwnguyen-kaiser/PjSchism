@@ -9,7 +9,7 @@ Bybit linear perp symbols match Binance naming (BTCUSDT, ETHUSDT, …).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -91,3 +91,40 @@ class BybitClient:
             count=len(records),
         )
         return records
+
+    async def get_funding_rate_all(
+        self,
+        symbol: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> list[dict]:
+        """
+        Paginated funding rate — fetches every record in [start_time, end_time].
+
+        Bybit returns newest-first per page (max 200). Each page works backward
+        by setting endTime to the oldest record seen so far minus 1 ms, until
+        fewer than 200 records are returned.
+        """
+        all_records: list[dict] = []
+        page_end = end_time
+        while True:
+            batch = await self.get_funding_rate(
+                symbol, start_time=start_time, end_time=page_end, limit=200
+            )
+            if not batch:
+                break
+            all_records = batch + all_records  # prepend: batch is older than current set
+            if len(batch) < 200:
+                break
+            page_end = batch[0]["funding_time"] - timedelta(milliseconds=1)
+            if start_time and page_end <= start_time:
+                break
+
+        ingestion_logger.info(
+            "bybit_funding_rate_paginated",
+            symbol=symbol,
+            total=len(all_records),
+            start=all_records[0]["funding_time"].isoformat() if all_records else None,
+            end=all_records[-1]["funding_time"].isoformat() if all_records else None,
+        )
+        return all_records

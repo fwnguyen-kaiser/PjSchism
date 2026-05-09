@@ -30,8 +30,11 @@ from schism.data.ingestion.publishers.redis_publisher import RedisPublisher
 from schism.data.ingestion.scheduler.jobs import register_jobs
 from schism.data.ingestion.services.backfill_service import BackfillService
 from schism.data.ingestion.services.live_service import LiveService
+from schism.data.preprocessing.bar_subscriber import BarSubscriber
+from schism.data.preprocessing.feature_engine import FeatureEngine
 from schism.persistence.db import create_engine, create_session_factory, ping_database
 from schism.persistence.repositories.bar_repo import BarRepository
+from schism.utils.config_loader import load_yaml
 from schism.utils.logger import ingestion_logger
 
 
@@ -126,6 +129,48 @@ def start_scheduler(ctx: AppContext) -> AsyncIOScheduler:
     return scheduler
 
 
+async def run_feature_backfill(
+    ctx: AppContext,
+    feature_engine: FeatureEngine,
+) -> None:
+    """Compute feature vectors for the full backfill window after bar backfill."""
+    from datetime import datetime, timezone, timedelta
+
+    to_ts = datetime.now(timezone.utc)
+    from_ts = to_ts - timedelta(days=BACKFILL_DAYS)
+
+    for symbol in ctx.symbols:
+        try:
+            instrument_id, timeframe_id = await ctx.bar_repo.resolve_ids(
+                exchange="binance",
+                symbol=symbol,
+                market_type="perp",
+                timeframe_label="4h",
+            )
+            written = await feature_engine.compute_and_store(
+                instrument_id=instrument_id,
+                timeframe_id=timeframe_id,
+                from_ts=from_ts,
+                to_ts=to_ts,
+                market_type="perp",
+            )
+            ingestion_logger.info(
+                "feature_backfill_done",
+                symbol=symbol,
+                rows_written=written,
+                from_ts=from_ts.isoformat(),
+                to_ts=to_ts.isoformat(),
+            )
+        except Exception as exc:
+            ingestion_logger.error(
+                "feature_backfill_failed",
+                symbol=symbol,
+                error=str(exc),
+            )
+
+    ingestion_logger.info("feature_backfill_complete", symbols=ctx.symbols)
+
+
 async def run_live(ctx: AppContext) -> tuple[list[asyncio.Task], asyncio.Event]:
     """Start one live loop task per symbol and wire shutdown signals."""
     live = LiveService(ctx)
@@ -161,19 +206,49 @@ async def main() -> None:
     )
 
     ctx = await bootstrap()
+
+    # Feature engine — only when DB is available
+    feature_engine: FeatureEngine | None = None
+    subscriber: BarSubscriber | None = None
+    if ctx.db_engine is not None and ctx.bar_repo is not None:
+        session_factory = create_session_factory(ctx.db_engine)
+        feature_engine = FeatureEngine(
+            session_factory,
+            feature_cfg=load_yaml("feature_config.yaml"),
+            validation_cfg=load_yaml("validation_config.yaml"),
+        )
+        subscriber = BarSubscriber(
+            redis=ctx.redis,
+            feature_engine=feature_engine,
+            bar_repo=ctx.bar_repo,
+            symbols=ctx.symbols,
+        )
+
     scheduler: AsyncIOScheduler | None = None
     live_tasks: list[asyncio.Task] = []
+    subscriber_task: asyncio.Task | None = None
     try:
         await run_backfill(ctx)
+        if feature_engine is not None:
+            await run_feature_backfill(ctx, feature_engine)
         scheduler = start_scheduler(ctx)
         live_tasks, shutdown_event = await run_live(ctx)
+        if subscriber is not None:
+            subscriber_task = asyncio.create_task(
+                subscriber.start(), name="bar_subscriber"
+            )
         await shutdown_event.wait()
     finally:
         ingestion_logger.info("ingestion_service_stopping")
+        if subscriber_task is not None:
+            subscriber_task.cancel()
         for task in live_tasks:
             task.cancel()
-        if live_tasks:
-            await asyncio.gather(*live_tasks, return_exceptions=True)
+        all_tasks = (
+            ([subscriber_task] if subscriber_task else []) + live_tasks
+        )
+        if all_tasks:
+            await asyncio.gather(*all_tasks, return_exceptions=True)
         if scheduler is not None:
             scheduler.shutdown(wait=False)
         await ctx.client.__aexit__(None, None, None)

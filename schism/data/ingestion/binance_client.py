@@ -462,9 +462,10 @@ class BinanceClient:
         limit: int = 1000,
     ) -> list[dict]:
         """
-        Funding rate history.
-        Returns list of dicts: {funding_time, funding_rate}
+        Single-page funding rate fetch (max 1000 records).
+        Returns list of dicts: {funding_time, funding_rate}, oldest first.
         """
+        from datetime import timedelta as _timedelta
         params: dict = {"symbol": symbol, "limit": limit}
         if start_time:
             params["startTime"] = datetime_to_ms(start_time)
@@ -484,6 +485,42 @@ class BinanceClient:
             }
             for row in raw
         ]
+
+    async def get_funding_rate_all(
+        self,
+        symbol: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> list[dict]:
+        """
+        Paginated funding rate — fetches every record in [start_time, end_time].
+
+        Binance returns records oldest-first per page; each page advances
+        start_time to last_record + 1 ms until fewer than 1000 records returned.
+        """
+        from datetime import timedelta as _timedelta
+
+        all_records: list[dict] = []
+        page_start = start_time
+        while True:
+            batch = await self.get_funding_rate(
+                symbol, start_time=page_start, end_time=end_time, limit=1000
+            )
+            if not batch:
+                break
+            all_records.extend(batch)
+            if len(batch) < 1000:
+                break
+            page_start = batch[-1]["funding_time"] + _timedelta(milliseconds=1)
+
+        ingestion_logger.info(
+            "binance_funding_rate_paginated",
+            symbol=symbol,
+            total=len(all_records),
+            start=all_records[0]["funding_time"].isoformat() if all_records else None,
+            end=all_records[-1]["funding_time"].isoformat() if all_records else None,
+        )
+        return all_records
 
     async def get_book_ticker_snapshot(self, symbol: str) -> dict:
         """
