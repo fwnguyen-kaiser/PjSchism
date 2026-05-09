@@ -17,6 +17,8 @@ class RegimeSnapshot(BaseModel):
     confidence: float | None
     posterior: list[float] | None
     model_ver: str | None
+    forecast_t1: list[float] | None = None
+    forecast_t2: list[float] | None = None
 
 
 class BarWithRegime(BaseModel):

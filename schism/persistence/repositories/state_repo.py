@@ -18,7 +18,8 @@ _RESOLVE_TIMEFRAME_SQL = text("""
 """)
 
 _CURRENT_SQL = text("""
-    SELECT bar_ts, instrument_id, timeframe_id, state, label, confidence, posterior, model_ver
+    SELECT bar_ts, instrument_id, timeframe_id, state, label, confidence,
+           posterior, model_ver, forecast_t1, forecast_t2
     FROM state_history
     WHERE instrument_id = :instrument_id AND timeframe_id = :timeframe_id
     ORDER BY bar_ts DESC
@@ -42,18 +43,22 @@ _HISTORY_SQL = text("""
 _UPSERT_STATE_SQL = text("""
     INSERT INTO state_history (
         bar_ts, instrument_id, timeframe_id,
-        state, label, confidence, posterior, model_ver
+        state, label, confidence, posterior, model_ver,
+        forecast_t1, forecast_t2
     )
     VALUES (
         :bar_ts, :instrument_id, :timeframe_id,
-        :state, :label, :confidence, :posterior, :model_ver
+        :state, :label, :confidence, :posterior, :model_ver,
+        :forecast_t1, :forecast_t2
     )
     ON CONFLICT (instrument_id, timeframe_id, bar_ts) DO UPDATE SET
-        state      = EXCLUDED.state,
-        label      = EXCLUDED.label,
-        confidence = EXCLUDED.confidence,
-        posterior  = EXCLUDED.posterior,
-        model_ver  = EXCLUDED.model_ver
+        state       = EXCLUDED.state,
+        label       = EXCLUDED.label,
+        confidence  = EXCLUDED.confidence,
+        posterior   = EXCLUDED.posterior,
+        model_ver   = EXCLUDED.model_ver,
+        forecast_t1 = EXCLUDED.forecast_t1,
+        forecast_t2 = EXCLUDED.forecast_t2
 """)
 
 _ALL_STATES_SQL = text("""
@@ -88,6 +93,8 @@ async def upsert_states(
             "confidence": float(r["confidence"]),
             "posterior": list(r["posterior"]),
             "model_ver": r.get("model_ver", ""),
+            "forecast_t1": list(r["forecast_t1"]) if r.get("forecast_t1") is not None else None,
+            "forecast_t2": list(r["forecast_t2"]) if r.get("forecast_t2") is not None else None,
         }
         for r in rows
     ]
@@ -133,6 +140,8 @@ async def get_current(
         "confidence": row.confidence,
         "posterior": row.posterior,
         "model_ver": row.model_ver,
+        "forecast_t1": row.forecast_t1,
+        "forecast_t2": row.forecast_t2,
     }
 
 
