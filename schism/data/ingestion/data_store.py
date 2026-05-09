@@ -12,8 +12,8 @@ Parquet partition scheme:
 
 Column schema (matches ohlcv_bars hypertable):
   bar_ts (datetime64[ns, UTC]), symbol, open, high, low, close,
-  volume, cvd, oi, lsr_top, funding_rate, num_trades,
-  taker_buy_base, quote_volume
+  volume, cvd, oi, lsr_top, funding_rate, best_bid, best_ask,
+  bybit_fr, num_trades, taker_buy_base, quote_volume, source
 
 TimescaleDB is the primary queryable store (state_history, feature_vectors,
 refit_log). Parquet acts as the immutable raw-data layer — it is always
@@ -50,9 +50,13 @@ _SCHEMA = pa.schema([
     pa.field("oi",             pa.float64()),
     pa.field("lsr_top",        pa.float64()),
     pa.field("funding_rate",   pa.float64()),
+    pa.field("best_bid",       pa.float64()),
+    pa.field("best_ask",       pa.float64()),
+    pa.field("bybit_fr",       pa.float64()),
     pa.field("num_trades",     pa.int64()),
     pa.field("taker_buy_base", pa.float64()),
     pa.field("quote_volume",   pa.float64()),
+    pa.field("source",         pa.string()),
 ])
 
 _PARTITION_COLS = ["symbol"]      # Hive-style: symbol=BTCUSDT/
