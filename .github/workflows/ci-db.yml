@@ -3,8 +3,24 @@ name: DB Integration Tests
 on:
   push:
     branches: [main]
+    paths:
+      - 'schism/db/**'
+      - 'schism/persistence/**'
+      - 'schism/api/schemas.py'
+      - 'schism/tests/test_ingestion_integrity.py'
+      - 'schism/tests/conftest.py'
+      - 'requirements.txt'
+      - '.github/workflows/ci-db.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'schism/db/**'
+      - 'schism/persistence/**'
+      - 'schism/api/schemas.py'
+      - 'schism/tests/test_ingestion_integrity.py'
+      - 'schism/tests/conftest.py'
+      - 'requirements.txt'
+      - '.github/workflows/ci-db.yml'
 
 jobs:
   db-integration:
