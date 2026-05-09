@@ -188,6 +188,7 @@ def make_mock_client(
     client.get_open_interest_hist     = AsyncMock(return_value=_oi)
     client.get_top_lsr                = AsyncMock(return_value=_lsr)
     client.get_funding_rate           = AsyncMock(return_value=_funding)
+    client.get_funding_rate_all       = AsyncMock(return_value=_funding)
     client.get_agg_trades             = AsyncMock(return_value=[])
     client.stream_kline_close         = AsyncMock(return_value=None)
     client.get_book_ticker_snapshot   = AsyncMock(return_value={
