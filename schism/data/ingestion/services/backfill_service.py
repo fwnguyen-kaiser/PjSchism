@@ -80,11 +80,10 @@ class BackfillService:
         chunk_start = start
         funding_records: list[dict] = []
         try:
-            funding_records = await self.ctx.client.get_funding_rate(
+            funding_records = await self.ctx.client.get_funding_rate_all(
                 symbol=symbol,
                 start_time=start - timedelta(hours=8),
                 end_time=end,
-                limit=1000,
             )
             funding_records.sort(key=lambda row: row["funding_time"])
         except Exception as exc:
@@ -99,11 +98,10 @@ class BackfillService:
         bybit_funding_records: list[dict] = []
         if self.ctx.bybit_client is not None:
             try:
-                bybit_funding_records = await self.ctx.bybit_client.get_funding_rate(
+                bybit_funding_records = await self.ctx.bybit_client.get_funding_rate_all(
                     symbol=symbol,
                     start_time=start - timedelta(hours=8),
                     end_time=end,
-                    limit=1000,
                 )
                 bybit_funding_records.sort(key=lambda row: row["funding_time"])
             except Exception as exc:

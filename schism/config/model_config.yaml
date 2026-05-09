@@ -1,8 +1,17 @@
-K: 4
-Dim: 10
+K: 3
+Dim: 9
 lambda_reg: 0.01
 tau_percentile: 95
 n_em_runs: 5
 max_iter: 200
 tol: 1.0e-5
-covariance_floor: 1.0e-4
+
+# Diagonal regularisation: floor added to each Sigma_k after M-step (pre-tau scaling).
+# For Z-scored features (unit variance), 0.1 ensures ~10% minimum per-dim variance → state overlap.
+covariance_floor: 0.1
+
+# Sticky-HMM prior applied at two points:
+#   1. Init: alpha[k,k] = log(sticky_kappa) — biases starting transitions toward self.
+#   2. M-step: adds sticky_kappa pseudo-self-transition counts per state per EM iteration.
+# sticky_kappa=1  → no prior (uniform). 500 → ~75% self-transition for K=4, T=1080.
+sticky_kappa: 500
