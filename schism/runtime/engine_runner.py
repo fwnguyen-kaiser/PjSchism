@@ -100,9 +100,11 @@ def _gamma_to_state_rows(
     ts_list: list,
     gamma: np.ndarray,
     model: IOHMM,
+    forecast_t1: np.ndarray | None = None,
+    forecast_t2: np.ndarray | None = None,
 ) -> list[dict]:
     rows = []
-    for ts, g in zip(ts_list, gamma):
+    for i, (ts, g) in enumerate(zip(ts_list, gamma)):
         s = int(g.argmax())
         rows.append(
             {
@@ -112,9 +114,25 @@ def _gamma_to_state_rows(
                 "confidence": float(g.max()),
                 "posterior": g.tolist(),
                 "model_ver": model.model_ver,
+                "forecast_t1": forecast_t1[i].tolist() if forecast_t1 is not None else None,
+                "forecast_t2": forecast_t2[i].tolist() if forecast_t2 is not None else None,
             }
         )
     return rows
+
+
+def _batch_forecast(
+    model: IOHMM,
+    gamma: np.ndarray,
+    U: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Vectorized t+1 and t+2 state forecasts for a sequence. Uses U_t as proxy for U_{t+k}."""
+    U_safe = model._safe_U(U)
+    logits = np.einsum("ijk,tk->tij", model.beta, U_safe) + model.alpha   # (T, K, K)
+    A = np.exp(logits - logsumexp(logits, axis=2, keepdims=True))          # (T, K, K)
+    f1 = np.einsum("ti,tij->tj", gamma, A)                                  # (T, K)
+    f2 = np.einsum("ti,tij->tj", f1, A)                                     # (T, K)
+    return f1, f2
 
 
 def _rebuild_log_alpha(model: IOHMM, O: np.ndarray, U: np.ndarray) -> np.ndarray:
@@ -170,7 +188,8 @@ async def _initial_fit_and_decode(
         O_full, U_full, ts_full = _df_to_arrays(full_df.copy(), zero_f8=zero_f8)
         gamma_full = model.filter(O_full, U_full)
         model.log_eval_criteria(gamma_full)
-        state_rows = _gamma_to_state_rows(ts_full, gamma_full, model)
+        f1_full, f2_full = _batch_forecast(model, gamma_full, U_full)
+        state_rows = _gamma_to_state_rows(ts_full, gamma_full, model, f1_full, f2_full)
 
         async with session_scope(session_factory) as session:
             written = await upsert_states(session, instrument_id, timeframe_id, state_rows)
@@ -336,6 +355,8 @@ async def run_forever() -> None:
 
             rv_ratio = float(o_t[_RV_COL_IDX]) if not np.isnan(o_t[_RV_COL_IDX]) else 1.0
 
+            f_t1 = model.predict_state(gamma_t, u_next=u_t, steps=1)
+            f_t2 = model.predict_state(gamma_t, u_next=u_t, steps=2)
             s = int(gamma_t.argmax())
             state_rows.append(
                 {
@@ -345,6 +366,8 @@ async def run_forever() -> None:
                     "confidence": float(gamma_t.max()),
                     "posterior": gamma_t.tolist(),
                     "model_ver": model.model_ver,
+                    "forecast_t1": f_t1.tolist(),
+                    "forecast_t2": f_t2.tolist(),
                 }
             )
 
