@@ -12,3 +12,12 @@ __pycache__/
 
 # Data Volumes
 schism/data/volumes/
+
+# Model artifacts (binary + large data, not versioned in git)
+model_latest.pkl
+labels.csv
+*.pkl
+
+# Local context / session docs
+context.md
+.claude/
