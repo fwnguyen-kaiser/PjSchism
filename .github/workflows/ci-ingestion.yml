@@ -3,8 +3,32 @@ name: Ingestion Integrity & Consistency
 on:
   push:
     branches: [main]
+    paths:
+      - 'schism/data/ingestion/**'
+      - 'schism/db/**'
+      - 'schism/persistence/**'
+      - 'schism/api/schemas.py'
+      - 'schism/tests/test_bar_builder.py'
+      - 'schism/tests/test_data_store.py'
+      - 'schism/tests/test_ingestion_service.py'
+      - 'schism/tests/test_ingestion_integrity.py'
+      - 'schism/tests/conftest.py'
+      - 'requirements.txt'
+      - '.github/workflows/ci-ingestion.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'schism/data/ingestion/**'
+      - 'schism/db/**'
+      - 'schism/persistence/**'
+      - 'schism/api/schemas.py'
+      - 'schism/tests/test_bar_builder.py'
+      - 'schism/tests/test_data_store.py'
+      - 'schism/tests/test_ingestion_service.py'
+      - 'schism/tests/test_ingestion_integrity.py'
+      - 'schism/tests/conftest.py'
+      - 'requirements.txt'
+      - '.github/workflows/ci-ingestion.yml'
 
 jobs:
   ingestion-integrity:
