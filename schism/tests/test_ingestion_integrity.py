@@ -28,6 +28,7 @@ class TestBarContract:
         expected_keys = {
             "bar_ts", "open", "high", "low", "close",
             "volume", "cvd", "oi", "lsr_top", "funding_rate",
+            "best_bid", "best_ask", "bybit_fr",
             "num_trades", "taker_buy_base", "quote_volume",
         }
         bar = make_bar(_bar_ts(0))
@@ -161,6 +162,8 @@ class TestDbSchemaIntegrity:
 
     async def test_feature_vectors_f_columns_not_null(self, db_engine):
         from sqlalchemy import text
+        # f5_spread is intentionally nullable: historical bars pre-bookTicker have no bid/ask data.
+        _NULLABLE_EXCEPTIONS = {"f5_spread"}
         async with db_engine.connect() as conn:
             result = await conn.execute(text(
                 "SELECT column_name, is_nullable FROM information_schema.columns "
@@ -168,7 +171,10 @@ class TestDbSchemaIntegrity:
                 "ORDER BY ordinal_position"
             ))
             rows = result.fetchall()
-        nullable_f_cols = [r.column_name for r in rows if r.is_nullable == "YES"]
+        nullable_f_cols = [
+            r.column_name for r in rows
+            if r.is_nullable == "YES" and r.column_name not in _NULLABLE_EXCEPTIONS
+        ]
         assert not nullable_f_cols, \
             f"Observation vector columns must be NOT NULL, but these are nullable: {nullable_f_cols}"
 
