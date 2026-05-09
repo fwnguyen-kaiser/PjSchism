@@ -20,6 +20,8 @@ import redis.asyncio as aioredis
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from schism.data.ingestion.binance_client import BinanceClient
+from schism.data.ingestion.bybit_client import BybitClient
+from schism.data.ingestion.cache.cross_fr_cache import CrossExchangeFRCache
 from schism.data.ingestion.cache.funding_cache import FundingCache
 from schism.data.ingestion.cache.oi_cache import OICache
 from schism.data.ingestion.context import AppContext
@@ -82,6 +84,7 @@ async def bootstrap() -> AppContext:
                 sys.exit(1)
 
     publisher = RedisPublisher(redis)
+    bybit_client = BybitClient()
     return AppContext(
         client=client,
         store=store,
@@ -95,6 +98,8 @@ async def bootstrap() -> AppContext:
         backfill_days=BACKFILL_DAYS,
         parquet_root=PARQUET_ROOT,
         env=ENV,
+        bybit_client=bybit_client,
+        cross_fr_cache=CrossExchangeFRCache(),
     )
 
 
@@ -107,6 +112,8 @@ async def run_backfill(ctx: AppContext) -> None:
     )
     await ctx.funding_cache.refresh(ctx.client, ctx.symbols)
     await ctx.oi_cache.refresh(ctx.client, ctx.symbols)
+    if ctx.bybit_client is not None and ctx.cross_fr_cache is not None:
+        await ctx.cross_fr_cache.refresh(ctx.bybit_client, ctx.symbols)
     ingestion_logger.info("backfill_complete", symbols=ctx.symbols)
 
 
