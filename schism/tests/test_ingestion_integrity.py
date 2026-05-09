@@ -60,6 +60,13 @@ class TestStateRepoContract:
         for field in RegimeSnapshot.model_fields:
             assert field in sql, f"_CURRENT_SQL missing field: {field}"
 
+    def test_upsert_sql_includes_forecast_columns(self):
+        """_UPSERT_STATE_SQL must bind and update forecast_t1/t2."""
+        from schism.persistence.repositories.state_repo import _UPSERT_STATE_SQL
+        sql = str(_UPSERT_STATE_SQL)
+        assert "forecast_t1" in sql
+        assert "forecast_t2" in sql
+
     def test_history_sql_selects_all_bar_regime_fields(self):
         from schism.persistence.repositories.state_repo import _HISTORY_SQL
         from schism.api.schemas import BarWithRegime
@@ -197,3 +204,43 @@ class TestDbSchemaIntegrity:
             row = result.fetchone()
         assert row is not None, "4h timeframe must be seeded by 001 migration"
         assert row.timeframe_id == 3
+
+    async def test_state_history_has_forecast_columns(self, db_engine):
+        """forecast_t1/t2 columns must exist in state_history after migration."""
+        from sqlalchemy import text
+        async with db_engine.connect() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='state_history' AND column_name IN ('forecast_t1','forecast_t2')"
+            ))
+            found = {row[0] for row in result}
+        assert "forecast_t1" in found, "forecast_t1 column missing from state_history"
+        assert "forecast_t2" in found, "forecast_t2 column missing from state_history"
+
+    async def test_forecast_round_trip(self, db_engine):
+        """upsert_states with forecast data → get_current returns values intact."""
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+        from schism.persistence.repositories.state_repo import upsert_states, get_current
+
+        Session = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+        row = {
+            "bar_ts":      datetime(2099, 1, 1, tzinfo=timezone.utc),
+            "state":       1,
+            "label":       "test_state",
+            "confidence":  0.88,
+            "posterior":   [0.10, 0.88, 0.02],
+            "model_ver":   "v_test",
+            "forecast_t1": [0.15, 0.80, 0.05],
+            "forecast_t2": [0.20, 0.72, 0.08],
+        }
+        async with Session() as session:
+            async with session.begin():
+                await upsert_states(session, 1, 3, [row])
+
+        async with Session() as session:
+            result = await get_current(session, 1, 3)
+
+        assert result is not None
+        assert result["forecast_t1"] == pytest.approx([0.15, 0.80, 0.05])
+        assert result["forecast_t2"] == pytest.approx([0.20, 0.72, 0.08])
