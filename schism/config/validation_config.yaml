@@ -1,0 +1,17 @@
+# ── Acceptance criteria (spec §2.2, C3) ──────────────────────────────────────
+vif_threshold: 5          # F8 flagged if VIF >= this; decision to exclude is manual
+rho_threshold: 0.85       # |corr(Xi, Xj)| alert threshold
+
+# ── Training discipline (spec §6.1) ──────────────────────────────────────────
+min_training_bars: 360        # 60 days at 4h — minimum acceptable window
+recommended_training_bars: 1080  # 180 days at 4h — production recommendation
+embargo_bars: 10              # 40 hours between training end and validation start
+
+# ── Feature normalisation ─────────────────────────────────────────────────────
+zscore_window_bars: 360       # rolling Z-score window (bars)
+
+# ── Evaluation criteria (spec §6.2) ──────────────────────────────────────────
+state_persistence_min_bars: 3
+state_persistence_max_bars: 100
+state_utilisation_min_pct: 5.0    # each state > 5 % of validation window
+temporal_stability_cv_max: 0.5    # CV of per-feature log-likelihood across folds

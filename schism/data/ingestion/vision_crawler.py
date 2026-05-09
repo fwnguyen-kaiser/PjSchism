@@ -81,14 +81,16 @@ def _parse_vision_row(row: dict) -> Optional[dict]:
                 bar_ts = bar_ts.replace(tzinfo=timezone.utc)
             else:
                 bar_ts = bar_ts.astimezone(timezone.utc)
+        def _opt_float(val: str) -> float | None:
+            """Return float or None for empty/missing values (Binance Vision publishes '' for missing LSR)."""
+            return float(val) if val else None
+
         return {
-            "bar_ts":           bar_ts,
+            "bar_ts":            bar_ts,
             "sum_open_interest": float(clean_row["sum_open_interest"]),
-            "sum_oi_value":     float(clean_row["sum_open_interest_value"]),
-            # top-trader L/S ratio — primary signal (u4 driver)
-            "top_ls_ratio":     float(clean_row.get("sum_toptrader_long_short_ratio", 0.0)),
-            # all-account taker vol ratio — auxiliary
-            "taker_vol_ratio":  float(clean_row.get("sum_taker_long_short_vol_ratio", 0.0)),
+            "sum_oi_value":      float(clean_row["sum_open_interest_value"]),
+            "top_ls_ratio":      _opt_float(clean_row.get("sum_toptrader_long_short_ratio", "")),
+            "taker_vol_ratio":   _opt_float(clean_row.get("sum_taker_long_short_vol_ratio", "")),
         }
     except (KeyError, ValueError, TypeError) as exc:
         ingestion_logger.warning(

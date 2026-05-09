@@ -39,12 +39,60 @@ _HISTORY_SQL = text("""
     ORDER BY sh.bar_ts DESC
 """)
 
+_UPSERT_STATE_SQL = text("""
+    INSERT INTO state_history (
+        bar_ts, instrument_id, timeframe_id,
+        state, label, confidence, posterior, model_ver
+    )
+    VALUES (
+        :bar_ts, :instrument_id, :timeframe_id,
+        :state, :label, :confidence, :posterior, :model_ver
+    )
+    ON CONFLICT (instrument_id, timeframe_id, bar_ts) DO UPDATE SET
+        state      = EXCLUDED.state,
+        label      = EXCLUDED.label,
+        confidence = EXCLUDED.confidence,
+        posterior  = EXCLUDED.posterior,
+        model_ver  = EXCLUDED.model_ver
+""")
+
 _ALL_STATES_SQL = text("""
     SELECT state, label, bar_ts
     FROM state_history
     WHERE instrument_id = :instrument_id AND timeframe_id = :timeframe_id
     ORDER BY bar_ts
 """)
+
+
+async def upsert_states(
+    session: AsyncSession,
+    instrument_id: int,
+    timeframe_id: int,
+    rows: list[dict],
+) -> int:
+    """
+    Batch-upsert state_history rows.
+
+    Each row dict must have: bar_ts, state, label, confidence, posterior (list[float]), model_ver.
+    Returns the number of rows written.
+    """
+    if not rows:
+        return 0
+    params = [
+        {
+            "bar_ts": r["bar_ts"],
+            "instrument_id": instrument_id,
+            "timeframe_id": timeframe_id,
+            "state": int(r["state"]),
+            "label": str(r["label"]),
+            "confidence": float(r["confidence"]),
+            "posterior": list(r["posterior"]),
+            "model_ver": r.get("model_ver", ""),
+        }
+        for r in rows
+    ]
+    await session.execute(_UPSERT_STATE_SQL, params)
+    return len(params)
 
 
 async def resolve_instrument_id(

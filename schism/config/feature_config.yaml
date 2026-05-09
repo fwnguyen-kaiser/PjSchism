@@ -1,5 +1,8 @@
-vif_threshold: 5
-rho: 0.85
+# VIF / correlation thresholds → validation_config.yaml
+
+# Numerical stability constant (spec §4, ε = 10^-8)
+epsilon: 1.0e-8
+
 winsorize_pct: [1, 99]
 interaction_features: [9, 10]
 
