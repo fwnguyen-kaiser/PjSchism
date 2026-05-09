@@ -17,6 +17,11 @@ async def daily_vision_refresh(ctx: AppContext) -> None:
         await backfill.run_vision(symbol, days=2)
 
 
+async def cross_fr_refresh(ctx: AppContext) -> None:
+    if ctx.bybit_client is not None and ctx.cross_fr_cache is not None:
+        await ctx.cross_fr_cache.refresh(ctx.bybit_client, ctx.symbols)
+
+
 def register_jobs(scheduler: AsyncIOScheduler, ctx: AppContext) -> None:
     scheduler.add_job(
         daily_vision_refresh,
@@ -35,5 +40,14 @@ def register_jobs(scheduler: AsyncIOScheduler, ctx: AppContext) -> None:
         args=[ctx.client, ctx.symbols],
         id="funding_refresh",
         name="Hourly funding rate refresh",
+        max_instances=1,
+    )
+    scheduler.add_job(
+        cross_fr_refresh,
+        trigger="interval",
+        hours=8,
+        args=[ctx],
+        id="cross_fr_refresh",
+        name="8-hourly Bybit funding rate refresh",
         max_instances=1,
     )
