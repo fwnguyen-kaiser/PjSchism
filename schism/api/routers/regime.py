@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from schism.api.dependencies import get_session
-from schism.api.schemas import BarWithRegime, RegimeSnapshot, RegimeStats
+from schism.api.schemas import BarWithPosterior, BarWithRegime, RegimeSnapshot, RegimeStats
 from schism.persistence.repositories import state_repo
 
 router = APIRouter()
@@ -81,6 +81,26 @@ async def history(
 
     rows = await state_repo.get_history(session, instrument_id, timeframe_id, resolved_from, resolved_to)
     return [BarWithRegime(**r) for r in rows]
+
+
+@router.get("/posteriors", response_model=list[BarWithPosterior])
+async def posteriors(
+    session: Session,
+    exchange: str = Query(default="binance"),
+    symbol: str = Query(default="BTCUSDT"),
+    market_type: str = Query(default="perp"),
+    timeframe: str = Query(default="4h"),
+    from_ts: datetime = Query(default=None),
+    to_ts: datetime = Query(default=None),
+) -> list[BarWithPosterior]:
+    instrument_id, timeframe_id = await _resolve(session, exchange, symbol, market_type, timeframe)
+
+    now = datetime.now(tz=timezone.utc)
+    resolved_to = to_ts or now
+    resolved_from = from_ts or resolved_to.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    rows = await state_repo.get_posteriors(session, instrument_id, timeframe_id, resolved_from, resolved_to)
+    return [BarWithPosterior(**r) for r in rows]
 
 
 @router.get("/stats", response_model=list[RegimeStats])

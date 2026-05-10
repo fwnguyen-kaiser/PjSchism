@@ -43,6 +43,7 @@ _TIMEFRAME     = os.environ.get("SCHISM_TIMEFRAME", "4h")
 _N_STATES      = int(os.environ.get("SCHISM_N_STATES",      str(_MODEL_CFG.get("K", 4))))
 _TRAIN_WINDOW  = int(os.environ.get("SCHISM_TRAIN_WINDOW",  "1080"))
 _MODEL_PATH    = Path(os.environ.get("MODEL_PATH",           "/data/models/iohmm.pkl"))
+_TRIGGER_FLAG  = _MODEL_PATH.parent / "refit_trigger.flag"
 _BAR_SECONDS   = int(os.environ.get("BAR_INTERVAL_SECONDS", str(4 * 3600)))
 _WARMUP_BARS   = int(os.environ.get("WARMUP_BARS",          "60"))
 
@@ -331,6 +332,15 @@ async def run_forever() -> None:
 
     while True:
         await asyncio.sleep(_BAR_SECONDS)
+
+        # Manual refit trigger written by POST /config/apply
+        if _TRIGGER_FLAG.exists():
+            try:
+                _TRIGGER_FLAG.unlink()
+            except OSError:
+                pass
+            _LOG.info("engine_manual_refit_triggered")
+            model = await _do_refit(model, feature_repo, instrument_id, timeframe_id, session_factory)
 
         now = datetime.now(tz=timezone.utc)
         new_df = await feature_repo.fetch_features(

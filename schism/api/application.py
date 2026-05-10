@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 import redis.asyncio as aioredis
 from fastapi import FastAPI
 
-from schism.api.routers import backtest, refit, regime
+from schism.api.routers import backtest, config, model, refit, regime
 from schism.persistence.db import create_engine, create_session_factory, ping_database
 from schism.utils.logger import regime_logger
 
@@ -56,6 +56,8 @@ def create_app() -> FastAPI:
     app.include_router(regime.router, prefix="/regime", tags=["regime"])
     app.include_router(refit.router, prefix="/refit", tags=["refit"])
     app.include_router(backtest.router, prefix="/backtest", tags=["backtest"])
+    app.include_router(model.router, prefix="/model", tags=["model"])
+    app.include_router(config.router, prefix="/config", tags=["config"])
 
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, str]:

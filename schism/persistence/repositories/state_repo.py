@@ -61,6 +61,21 @@ _UPSERT_STATE_SQL = text("""
         forecast_t2 = EXCLUDED.forecast_t2
 """)
 
+_POSTERIORS_SQL = text("""
+    SELECT sh.bar_ts, ob.close, ob.volume, sh.state, sh.label, sh.confidence,
+           sh.posterior, sh.forecast_t1, sh.forecast_t2
+    FROM state_history sh
+    LEFT JOIN ohlcv_bars ob
+        ON ob.instrument_id = sh.instrument_id
+       AND ob.timeframe_id  = sh.timeframe_id
+       AND ob.bar_ts        = sh.bar_ts
+    WHERE sh.instrument_id = :instrument_id
+      AND sh.timeframe_id  = :timeframe_id
+      AND sh.bar_ts >= :from_ts
+      AND sh.bar_ts <  :to_ts
+    ORDER BY sh.bar_ts ASC
+""")
+
 _ALL_STATES_SQL = text("""
     SELECT state, label, bar_ts
     FROM state_history
@@ -169,6 +184,38 @@ async def get_history(
             "state": row.state,
             "label": row.label,
             "confidence": row.confidence,
+        }
+        for row in result.fetchall()
+    ]
+
+
+async def get_posteriors(
+    session: AsyncSession,
+    instrument_id: int,
+    timeframe_id: int,
+    from_ts: datetime,
+    to_ts: datetime,
+) -> list[dict]:
+    result = await session.execute(
+        _POSTERIORS_SQL,
+        {
+            "instrument_id": instrument_id,
+            "timeframe_id": timeframe_id,
+            "from_ts": from_ts,
+            "to_ts": to_ts,
+        },
+    )
+    return [
+        {
+            "bar_ts": row.bar_ts,
+            "close": row.close,
+            "volume": row.volume,
+            "state": row.state,
+            "label": row.label,
+            "confidence": row.confidence,
+            "posterior": list(row.posterior) if row.posterior is not None else None,
+            "forecast_t1": list(row.forecast_t1) if row.forecast_t1 is not None else None,
+            "forecast_t2": list(row.forecast_t2) if row.forecast_t2 is not None else None,
         }
         for row in result.fetchall()
     ]

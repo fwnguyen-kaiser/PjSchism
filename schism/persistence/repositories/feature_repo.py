@@ -106,6 +106,44 @@ def _to_float(v: object) -> float | None:
         return None
 
 
+_FULL_DIST_SQL = text("""
+    SELECT f1_cvd_vol, f2_oi_chg, f3_norm_ret, f4_liq_sq, f5_spread,
+           f6_illiq,  f7_rv_ratio, f8_vol_shock, f9_flow_liq, f10_flow_pos,
+           u1_ewma_fr, u2_delta_fr, u3_fr_spread, u4_delta_lsr
+    FROM feature_vectors
+    WHERE instrument_id = :instrument_id
+      AND timeframe_id  = :timeframe_id
+""")
+
+_ALL_DIST_COLS = _O_FEATURE_COLS + _U_COLS
+
+
+async def get_feature_distributions(
+    session: AsyncSession,
+    instrument_id: int,
+    timeframe_id: int,
+) -> dict[str, np.ndarray]:
+    """Return {col_name: ndarray of non-NaN values} for all feature columns."""
+    result = await session.execute(
+        _FULL_DIST_SQL,
+        {"instrument_id": instrument_id, "timeframe_id": timeframe_id},
+    )
+    rows = result.fetchall()
+    if not rows:
+        return {}
+
+    buckets: dict[str, list[float]] = {col: [] for col in _ALL_DIST_COLS}
+    for row in rows:
+        for i, col in enumerate(_ALL_DIST_COLS):
+            v = row[i]
+            if v is not None:
+                f = float(v)
+                if not math.isnan(f):
+                    buckets[col].append(f)
+
+    return {col: np.array(vals) for col, vals in buckets.items() if vals}
+
+
 class FeatureRepository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
