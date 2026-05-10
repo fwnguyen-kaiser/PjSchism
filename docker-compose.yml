@@ -97,3 +97,16 @@ services:
     ports:
       - "8000:8000"
     command: uvicorn schism.main:app --host 0.0.0.0 --port 8000 --reload
+
+  ui:
+    build:
+      context: ./schism_ui
+      dockerfile: Dockerfile
+    container_name: schism_ui
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:8000
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
